@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  jstverify.com -- SAM Application
+  Created by Justin Bard
+  08/18/2020
+
+  Developed to ease the process of setting up a JstVerify action in CodePipeline
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: JstVerify
+    Description: CodePipeline Custom Action to integrate with JstVerify
+    Author: JstVerify
+    SpdxLicenseId: MIT
+    LicenseUrl: LICENSE.txt
+    ReadmeUrl: README.md
+    Labels: ['tests']
+    HomePageUrl: https://jstverify.com
+    SemanticVersion: 1.0.0
+    SourceCodeUrl: https://github.com/JstVerify/WebTesterCodePipelineSam
+
+Resources: 
+###################################################################################################
+######################################## Lambda Functions #########################################
+###################################################################################################
+
+  CodePipelinePoller:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Polls CodePipeline for JstVerify Actions.
+      CodeUri: poller
+      Handler: poller.lambda_handler
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 15
+      Role: !GetAtt CodePipelinePollerExecutionRole.Arn
+      Environment:
+        Variables:
+          JSTVERIFY_ACTION_PROVIDER_NAME: JstVerify
+          JSTVERIFY_ACTION_PROVIDER_CATEGORY: Test
+          JSTVERIFY_ACTION_PROVIDER_VERSION: 1b
+      Events:
+        # This event is used to react on started instances of the JstVerify Action
+        CodePipelineActionStartedEvent:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source: 
+                - "aws.codepipeline"
+              detail-type: 
+                - "CodePipeline Action Execution State Change"
+              detail: 
+                state: 
+                  - "STARTED"
+        # This event is needed to make JstVerify Actions as completed once build is done.
+        CheckCodePipelineScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+
+  CodePipelinePollerExecutionRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:*
+            Resource: arn:aws:logs:*:*:*
+
+###################################################################################################
+###################################### CodePipeline Action ########################################
+###################################################################################################
+
+  JstVerifyActionType: 
+    Type: AWS::CodePipeline::CustomActionType
+    Properties: 
+      Category: Test
+      Provider: JstVerify
+      Version: 1b
+      ConfigurationProperties:
+        - Name: JstVerifyTestName 
+          Description: Specify the title of the JstVerify test that was configured at jstverify.com
+          Key: true 
+          Required: true
+          Secret: false
+          Queryable: false
+          Type: String
+      InputArtifactDetails: 
+        MaximumCount: 0
+        MinimumCount: 0
+      OutputArtifactDetails: 
+        MaximumCount: 0
+        MinimumCount: 0 
+      Settings:
+        EntityUrlTemplate: "https://jstverify.com/"
+        RevisionUrlTemplate: "https://jstverify.com/"
+
+###################################################################################################
+########################################## IAM Policies ###########################################
+###################################################################################################
+
+  CodePipelinePollerExecutionsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CodePipelinePollerExecutionsPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - codepipeline:PollForJobs
+              - codepipeline:GetJobDetails
+              - codepipeline:AcknowledgeJob
+              - codepipeline:PutJobSuccessResult
+              - codepipeline:PutJobFailureResult
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/JstVerifyAPIKey'
+      Roles:
+        - Ref: "CodePipelinePollerExecutionRole"

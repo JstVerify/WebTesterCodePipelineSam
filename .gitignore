@@ -1,0 +1,14 @@
+# VS Code
+.vscode
+
+customer_image.jpg
+bw_customer_image.jpg
+*.stl
+*.gcode
+
+_pgbackup
+mapped_urls
+
+.aws-sam
+
+pinegrow.json
